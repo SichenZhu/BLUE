@@ -1,0 +1,78 @@
+# Deconvolution-pipeline configuration. All paths are interpreted relative to
+# the repo root unless absolute. Edit values to fit your dataset, then run the
+# pipeline scripts under scripts/deconv/ in numerical order.
+
+paths:
+  # Step 1 inputs ---------------------------------------------------------
+  sc_h5ad_dir:           /path/blue/AML_data/AML_h5ad/   # directory of per-patient .h5ad files
+  sc_h5ad_glob:          "*.h5ad"                            # glob pattern, evaluated under sc_h5ad_dir
+  bulk_tsv:              /path/blue/AML_data/TCGA-LAML_bulk.tsv # genes × samples, first col = gene_id
+  bulk_metadata_tsv:     null  # optional, joined into prediction CSV; leave null if absent
+
+  # Step 1 output / downstream input -------------------------------------
+  combined_sc_h5ad:      /path/blue/AML_output/processed_data/combined_labeled.h5ad
+  celltype_mapping_yaml: config/celltype_mapping_aml.yaml     # fine → coarse mapping (user-edited)
+
+  # Steps 2–5 working directories ----------------------------------------
+  gene_lists_dir:        /path/blue/AML_output/deconv_training_data/             # holds all_common_gene_lst.txt, all_DEG_lst.txt
+  pseudobulk_dir:        /path/blue/AML_output/deconv_training_data/pseudobulks/ # holds *_trainbulk.h5ad / *_valbulk.h5ad / all_*.h5ad
+  ckpt_root:             /path/blue/AML_output/deconv_ckpt/                 # one subdir per run (timestamped)
+  predictions_dir:       /path/blue/AML_output/deconv_predictions/
+
+  # Optional: gene lists for the model input (bulk features) and output
+  # (per-cell-type GEP). Both default to <gene_lists_dir>/all_DEG_lst.txt when
+  # null. Set to point at a different one-gene-per-line text file to use a
+  # custom panel. Leaving output_gene_list null reuses the input list.
+  input_gene_list:       /path/blue/AML_data/reproduce/all_common_gene_lst.txt
+  output_gene_list:      /path/blue/AML_data/reproduce/all_DEG_lst.txt
+
+# How to read the per-patient sc h5ads.
+sc_schema:
+  fine_celltype_col:    CellType         # obs column carrying the existing fine label
+  library_id_col:       library_id       # obs column that uniquely identifies each patient/library
+  raw_counts_layer:     null             # null = use .X; else name the layer that has raw counts
+  ensembl_var_names:    false            # true if var_names are Ensembl gene IDs matching the bulk TSV
+
+# Pseudobulk generation (Dirichlet-mixed, uniform + α=50/15/5 dominant variants).
+pseudobulk:
+  samplenum_per_ct:        30          # per-patient train: samplenum = samplenum_per_ct * num_ct
+  val_samplenum_per_patient: 10
+  samplenum_all_train:     5000
+  samplenum_all_val:       20
+  n_cells:                 500         # mean cells contributing to each pseudobulk
+  train_ratio:             0.8         # train/val cell-level split inside each patient
+  val_ratio:               0.1
+  seed:                    42
+  # Dirichlet α controlling the mixture of cell-type proportions:
+  #  - uniform_alpha: α used for every cell type in the "balanced" block.
+  #  - dominant_alphas: list of α values; each produces a dominant block where
+  #    one cell type gets that α (rest stay at 1), repeated across all cell
+  #    types. Higher α = more concentrated (more dominant) proportions.
+  uniform_alpha:           1
+  dominant_alphas:         [50, 15, 5]
+  
+# Per-patient one-vs-rest DEG selection.
+degs:
+  fdr_rate:        0.1
+  num_deg_per_ct:  200                 # max positive-logFC DEGs picked per cell type (greedy, dedup)
+
+# UNet training hyperparameters. CLI flags on 04_train_unet.py override most of these.
+training:
+  batch_size:         64
+  epochs:             50
+  lr:                 1.0e-5
+  weight_decay:       0
+  coeff_ct_gep:       1
+  coeff_prop:         100
+  sched_step:         20
+  sched_gamma:        0.5
+  use_amp:            true
+  seed:               42
+  cuda:               0                # GPU id
+  preprocess_mode:    deg_first        # 'deg_first' (norm over DEGs only) | 'all_first' (norm over full transcriptome, then subset)
+  split_mode:         pseudo           # 'pseudo' (default; uses all_*.h5ad + per-patient) | 'held_out_patients'
+  split_seed:         42               # only used when split_mode = held_out_patients
+
+# Prediction.
+predict:
+  cuda: 0

@@ -1,0 +1,19 @@
+# Cell-type mapping for deconvolution.
+#   Keys   = the coarse cell-type labels you want the model to deconvolve.
+#   Values = list of fine labels (as they appear in your sc h5ad's
+#            sc_schema.fine_celltype_col) that should collapse into the key.
+#
+# Every fine label in your sc h5ads must appear under exactly one key.
+# Cells whose fine label is not listed here are dropped.
+#
+# The example below mirrors the SCPCP000003 (T-ALL) project: 11 coarse classes
+# spanning hematopoietic stem/progenitor through T, NK, B, and myeloid lineages.
+# Replace it with your own grouping.
+
+HSC-like:     [HSC-like]
+Prog-like:    [Prog-like]
+GMP-like:     [GMP-like]
+ProMono-like: [ProMono-like]
+Mono-like:    [Mono-like]
+cDC-like:     [cDC-like]
+
