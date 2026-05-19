@@ -3,10 +3,10 @@
 [Deconvolving cell-type-specific gene expression profiles from bulk RNA-seq samples](https://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1014101)
 
 
-## TO DO LIST
+### TO DO LIST
 - [x] ~~Release code for applying BLUE to AML~~
 - [x] ~~Provide instructions to applying BLUE to any customized dataset~~
-- [ ] Downstream analysis for AML after deconvolution (Expected to be completed in the week of May 11, 2026)
+- [x] ~~Downstream analysis for AML after deconvolution~~
 
 
 ## Environment setup
@@ -41,3 +41,23 @@ TL;DR ver:
   3. Edit `config/celltype_mapping.yaml` to match your fine labels,
   4. Adjust `paths.*`, `sc_schema.*`, `training.cuda` in `config/pipeline_config.yaml`,
   5. Run scripts `00` → `06` from `scripts/deconv/` in order.
+
+
+## To run post deconvolution analysis for AML case:
+Please refer to [`scripts/aml_followup/AML_post_deconv_README.md`](./scripts/aml_followup/AML_post_deconv_README.md).
+
+
+## BibTeX
+We appreciate your citations if you find this method helpful :)
+```
+@article{zhu2026deconvolving,
+  title={Deconvolving cell-type-specific gene expression profiles from bulk RNA-seq samples},
+  author={Zhu, Sichen and Wang, Zhengqi and Bunting, Kevin D and Qiu, Peng},
+  journal={PLOS Computational Biology},
+  volume={22},
+  number={3},
+  pages={e1014101},
+  year={2026},
+  publisher={Public Library of Science San Francisco, CA USA}
+}
+```

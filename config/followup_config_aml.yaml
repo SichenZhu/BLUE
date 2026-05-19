@@ -1,0 +1,59 @@
+# AML downstream-analysis pipeline configuration.
+#
+# Drives the scripts under scripts/aml_followup/ (run after BLUE deconvolution).
+# Pass a different file with --config; paths are relative to the repo root
+# unless absolute. Pipeline order:
+#   step00 -> step01 -> step02 -> step03 -> step04
+
+paths:
+  # User-provided inputs (BLUE predictions + TCGA survival metadata) live here.
+  input_dir:  AML_data/input_after_deconv
+  # Every generated file is written here.
+  output_dir: downstream_output
+
+# Cell types deconvolved by BLUE. Must match the GEP_<ct>.txt file names (or the
+# h5ad layer names, see gep_h5ad below) and be in the SAME ORDER as `group_pairs`.
+celltypes: [HSC-like, Prog-like, GMP-like, ProMono-like, Mono-like, cDC-like]
+
+# Patient-metadata table inside input_dir. Index = patient ID; contain
+# columns os, osi, Cluster, paper_cluster.
+patient_info_csv: TCGA_patient_subgroups.csv
+
+# step00 GEP input. By default (gep_h5ad: null) step00 reads per-cell-type
+# GEP_<celltype>.txt files from input_dir. Set gep_h5ad to instead read a single
+# AnnData with one layer per cell type -- the deconvolution pipeline's
+# predicted_ctGEP_ep<N>.h5ad output. Path may be absolute or relative to input_dir.
+gep_h5ad: null
+
+# step00 -- PCA/UMAP/Leiden clustering of the (patient x cell-type) GEP states.
+cell_states:
+  n_neighbors:       30
+  n_pcs:             20
+  min_dist:          0.8
+  leiden_resolution: 0.8
+
+# step01 -- one Leiden-cluster pair per cell type, SAME ORDER as `celltypes`.
+# Each pair is the two step00 Leiden clusters that split that cell type's
+# patients, read from the step00 UMAP output by eye. RE-DERIVE if step00's clustering
+# changes (different seed / scanpy version / parameters).
+group_pairs:
+  - ["2", "9"]    # HSC-like
+  - ["3", "8"]    # Prog-like
+  - ["0", "11"]   # GMP-like
+  - ["1", "10"]   # ProMono-like
+  - ["6", "5"]    # Mono-like
+  - ["7", "4"]    # cDC-like
+
+# step03 -- multiple-testing filter + consensus clustering of definitions.
+hypothesis_testing:
+  fdr_rate:       0.05   # keep definitions with Benjamini-Hochberg FDR below this
+  min_group_size: 2      # the smaller patient group must have MORE than this many patients
+  iou_threshold:  0.8    # min patient-set IoU to link two definitions in the consensus graph
+
+# step04 -- manual assembly of the final 3 patient groups. After inspecting the
+# survival curves of step03's consensus clusters (the new_cluster_<k> columns of
+# tcga_new_cluster.csv), list which clusters' "== 2" side defines each final
+# group. RE-DERIVE if step03's output changes.
+final_groups:
+  best_clusters:  [0, 2, 3, 4]   # a patient is "best"  if in the ==2 side of ALL of these
+  worst_clusters: [1, 5]         # a patient is "worst" if in the ==2 side of ANY of these

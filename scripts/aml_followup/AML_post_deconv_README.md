@@ -1,0 +1,105 @@
+# AML downstream-analysis pipeline
+
+Post-deconvolution analysis for the AML (TCGA-LAML) study. Starting from BLUE's
+per-cell-type predicted gene-expression profiles (GEPs), it clusters the
+predicted cell states, enumerates and merges candidate patient groupings, tests for
+survival association, and assembles the final patient groups.
+
+Run this **after** the deconvolution pipeline [`AML_README.md`](../../AML_README.md).
+
+## Pipeline steps
+
+Run in order. Every script is config-driven via `--config`; with no `--config`
+it falls back to `config/followup_config_aml.yaml`.
+
+| # | Script | What it does | Key output |
+|---|--------|--------------|------------|
+| 1 | `step00_define_cell_states_predctGEP.py` | stack BLUE's per-cell-type predicted GEPs into one AnnData; PCA → UMAP → Leiden clustering. Generate two "cell states" for every cell type. | `all_predCTGEP.h5ad` |
+| 2 | `step01_define_patient_group_by_cell_states.py` | pair the Leiden clusters per cell type; enumerate every binary patient-group "definition" over all possible cell-type combinations ($n$ stands for size / number of cell types) | `<n>/TCGA_patient_cluster_*.csv` |
+| 3 | `step02_gen_pvals.py` | log-rank survival p-value for each definition (`Surv(os, osi) ~ cluster`) | `<n>/TCGA_patient_cluster_ct<n>_pvals.txt` |
+| 4 | `step03_multiple_hypothesis_testing.py` | Benjamini-Hochberg FDR filter, then IoU-based consensus clustering of the surviving definitions | `tcga_new_cluster.csv` |
+| 5 | `step04_def_final_patient_groups.py` | assemble the final 3 patient groups (best / worst / rest) | `TCGA_new_3_groups.csv` |
+
+## Environment
+
+The scripts run in the repo's `uv` environment (see the top-level
+[`README.md`](../../README.md)). Two packages beyond `pyproject.toml` are needed:
+
+```bash
+uv pip install leidenalg        # step00 — Leiden clustering backend (required)
+uv pip install scikit-survival  # step04 --plots only — Kaplan-Meier curves (optional)
+```
+
+(or `uv add leidenalg scikit-survival` to record them in `pyproject.toml`.)
+
+## Configuration
+
+All five scripts read `config/followup_config_aml.yaml`. Edit it for your new run (every parameter is explained in the [yaml](../../config/followup_config_aml.yaml) file.)
+
+Pass a different file with `--config /path/to/your_config.yaml`.
+
+## Inputs
+
+Place the patient metadata in `paths.input_dir`:
+
+- `TCGA_patient_subgroups.csv` — patient metadata; index = patient ID, contain columns `os`, `osi` (see [TCGA_patient_subgroups_README.md](../../AML_data/input_after_deconv/TCGA_patient_subgroups_README.md) for column explanations)
+
+The per-cell-type predicted GEP (step00's input) is supplied in **one** of two
+formats, selected by the config field `gep_h5ad`:
+
+- **Text files** (`gep_h5ad: null`, the default) — `GEP_<celltype>.txt` in
+  `paths.input_dir`, one per cell type in `celltypes`; tab-separated,
+  patients × genes (first column = patient ID).
+- **Single h5ad** (`gep_h5ad: <path>`) — the deconvolution pipeline's
+  `predicted_ctGEP_ep<N>.h5ad` output: one AnnData layer per cell type
+  (obs = patients, var = genes). This lets the follow-up pipeline run straight
+  off the deconvolution output. The path may be absolute or relative to
+  `paths.input_dir`.
+
+## Running
+
+```bash
+cfg=config/followup_config_aml.yaml
+
+uv run python scripts/aml_followup/step00_define_cell_states_predctGEP.py       --config $cfg
+#  → inspect all_predCTGEP.h5ad's UMAP and fill in `group_pairs` (see section below #Two manual check)
+uv run python scripts/aml_followup/step01_define_patient_group_by_cell_states.py --config $cfg
+uv run python scripts/aml_followup/step02_gen_pvals.py                          --config $cfg
+uv run python scripts/aml_followup/step03_multiple_hypothesis_testing.py        --config $cfg
+#  → inspect the consensus clusters' survival and fill in `final_groups` (see section below: #Two manual check)
+uv run python scripts/aml_followup/step04_def_final_patient_groups.py           --config $cfg
+```
+
+Add `--plots` to step00 / step03 / step04 to also save (and display) figures:
+
+```bash
+uv run python scripts/aml_followup/step00_define_cell_states_predctGEP.py --config $cfg --plots
+```
+
+## Outputs (in `paths.output_dir`)
+
+- `all_predCTGEP.h5ad` — clustered cell states (step00)
+- `<n>/TCGA_patient_cluster_*.csv` — patient-group definitions, n = 1..6 (step01)
+- `<n>/TCGA_patient_cluster_ct<n>_pvals.txt` — per-definition log-rank p-values (step02)
+- `tcga_new_cluster.csv` — consensus clusters (step03)
+- `TCGA_new_3_groups.csv` — **final result**: `my_cluster` per patient — `0` = rest, `1` = worst-survival, `2` = best-survival
+- with `--plots`: `umap_*.png`, `iou_histogram.png`, `consensus_graph.png`, `final_3_groups_survival.png`
+
+## Two manual check
+
+The pipeline has two human-in-the-loop steps. Each is recorded in the config.
+
+**After step00 → `group_pairs`.** step00's UMAP shows, for each cell type, two
+Leiden clusters that split that cell type's patients (two is automatically generated by default parameters of Leiden). Read the two cluster IDs
+off the UMAP and list them in `group_pairs` — one `[clusterA, clusterB]` pair
+per cell type, in `celltypes` order. Leiden cluster IDs are **not stable** across
+`scanpy` / `leidenalg` versions, so if you re-run step00, re-derive `group_pairs`
+from the new UMAP.
+
+**After step03 → `final_groups`.** step03 writes its consensus clusters as
+`new_cluster_<k>` columns in `tcga_new_cluster.csv`. Inspect each cluster's
+survival pattern, then set `final_groups.best_clusters` / `worst_clusters` to the
+cluster indices whose `== 2` side forms the best- and worst-survival groups. 
+
+## Notes:
+To exactly reproduce the result from the paper, use `all_predCTGEP.h5ad` downloaded from [huggingface dataset space](https://huggingface.co/datasets/sz2524337/BLUE_data/tree/main) and start from step01. Default Leiden clustering results are not consistent between scanpy package 1.9.x (the one used in BLUE's AML experiment) and more modern version of the package. 

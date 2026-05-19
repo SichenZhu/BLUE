@@ -35,3 +35,4 @@ dist/
 
 # Pipeline outputs (per config defaults)
 outputs/
+downstream_output/
